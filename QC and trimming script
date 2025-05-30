@@ -1,0 +1,63 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G 
+#SBATCH -t 12:00:00
+
+# Load required modules
+module purge
+module load GCC/11.3.0
+module load Trim_Galore/0.6.10-Python-2.7.18
+module load cutadapt/4.2
+module load parallel/20220722
+
+# Print working directory, change contents within " " based on what the sample identifier is (for example, CH were case samples while CT and CC were control samples.
+echo "Running from directory: $(pwd)"
+echo "Listing all folders:"
+find . -maxdepth 1 -type d \( -name "CH*" -o -name "CT*" -o -name "CC*" -o -name "ch*" \) | sed 's|^\./||'
+
+process_sample() {
+    i="$1"
+    echo "Processing sample: $i"
+
+    # Check if L001 and L002 are available
+    l001_r1=(${i}/${i}_0*_S*_L001_R1_001.fastq.gz)
+    l001_r2=(${i}/${i}_0*_S*_L001_R2_001.fastq.gz)
+    l002_r1=(${i}/${i}_0*_S*_L002_R1_001.fastq.gz)
+    l002_r2=(${i}/${i}_0*_S*_L002_R2_001.fastq.gz)
+
+    # Check if L003 and L004 are available
+    l003_r1=(${i}/${i}_0*_S*_L003_R1_001.fastq.gz)
+    l003_r2=(${i}/${i}_0*_S*_L003_R2_001.fastq.gz)
+    l004_r1=(${i}/${i}_0*_S*_L004_R1_001.fastq.gz)
+    l004_r2=(${i}/${i}_0*_S*_L004_R2_001.fastq.gz)
+
+    if [[ -f "${l003_r1[0]}" && -f "${l003_r2[0]}" && -f "${l004_r1[0]}" && -f "${l004_r2[0]}" ]]; then
+        echo "Using L003 + L004 for $i"
+        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l003_r1[0]}" "${l003_r2[0]}"
+        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l004_r1[0]}" "${l004_r2[0]}"   
+    # Concatenate the files for L003 and L004
+        cat ${i}/${i}_0*_S*_L003_R1_001_val_1.fq.gz ${i}/${i}_0*_S*_L004_R1_001_val_1.fq.gz > ${i}_1.fq.gz
+        cat ${i}/${i}_0*_S*_L003_R2_001_val_2.fq.gz ${i}/${i}_0*_S*_L004_R2_001_val_2.fq.gz > ${i}_2.fq.gz
+    
+    elif [[ -f "${l001_r1[0]}" && -f "${l001_r2[0]}" && -f "${l002_r1[0]}" && -f "${l002_r2[0]}" ]]; then
+        echo "Using L001 + L002 for $i"
+        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l001_r1[0]}" "${l001_r2[0]}"
+        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l002_r1[0]}" "${l002_r2[0]}"    
+    # Concatenate the files for L001 and L002
+        cat ${i}/${i}_0*_S*_L001_R1_001_val_1.fq.gz ${i}/${i}_0*_S*_L002_R1_001_val_1.fq.gz > ${i}_1.fq.gz
+        cat ${i}/${i}_0*_S*_L001_R2_001_val_2.fq.gz ${i}/${i}_0*_S*_L002_R2_001_val_2.fq.gz > ${i}_2.fq.gz
+    else
+        echo "Error: Missing required lane files for $i"
+    fi
+}
+
+export -f process_sample
+
+# Actually run it, change the number after -j depending on how many samples are being processed
+find . -maxdepth 1 -type d \( -name "CH*" -o -name "CT*" -o -name "CC*" -o -name "ch*" \) | sed 's|^\./||' | parallel --bar -j 38 process_sample {}
+
+## DO NOT ADD/EDIT BEYOND THIS LINE ##
+## Job monitor command to list resource usage
+# my-job-stats -a -n -s
