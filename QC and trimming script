@@ -11,52 +11,74 @@ module load GCC/11.3.0
 module load Trim_Galore/0.6.10-Python-2.7.18
 module load cutadapt/4.2
 module load parallel/20220722
+#!/bin/bash
 
-# Print working directory, change contents within " " based on what the sample identifier is (for example, CH were case samples while CT and CC were control samples.
+# Print the current working directory for debugging
 echo "Running from directory: $(pwd)"
+
+# List all folders matching known sample naming patterns
 echo "Listing all folders:"
-find . -maxdepth 1 -type d \( -name "CH*" -o -name "CT*" -o -name "CC*" -o -name "ch*" \) | sed 's|^\./||'
+find . -maxdepth 1 -type d \( -name "CH*" -o -name "CT*" -o -name "CC*" -o -name "ch*" -o -name "T1*" -o -name "A0*" -o -name "T0*" -o -name "C0*" -o -name "CA*" \) | sed 's|^\./||'
 
-process_sample() {
-    i="$1"
-    echo "Processing sample: $i"
+# Create an array of folder names that match the above patterns
+filenames=($(find . -maxdepth 1 -type d \( -name "CH*" -o -name "CT*" -o -name "CC*" -o -name "ch*" -o -name "T1*" -o -name "A0*" -o -name "T0*" -o -name "C0*" -o -name "CA*" \) | sed 's|^\./||'))
 
-    # Check if L001 and L002 are available
-    l001_r1=(${i}/${i}_0*_S*_L001_R1_001.fastq.gz)
-    l001_r2=(${i}/${i}_0*_S*_L001_R2_001.fastq.gz)
-    l002_r1=(${i}/${i}_0*_S*_L002_R1_001.fastq.gz)
-    l002_r2=(${i}/${i}_0*_S*_L002_R2_001.fastq.gz)
+# Use SLURM_ARRAY_TASK_ID to select the correct folder/sample
+active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
+file_prefix="$active_file"
 
-    # Check if L003 and L004 are available
-    l003_r1=(${i}/${i}_0*_S*_L003_R1_001.fastq.gz)
-    l003_r2=(${i}/${i}_0*_S*_L003_R2_001.fastq.gz)
-    l004_r1=(${i}/${i}_0*_S*_L004_R1_001.fastq.gz)
-    l004_r2=(${i}/${i}_0*_S*_L004_R2_001.fastq.gz)
+# Print out the selected folder/sample for verification
+echo "active_file: $active_file"
+echo "file_prefix: $file_prefix"
 
-    if [[ -f "${l003_r1[0]}" && -f "${l003_r2[0]}" && -f "${l004_r1[0]}" && -f "${l004_r2[0]}" ]]; then
-        echo "Using L003 + L004 for $i"
-        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l003_r1[0]}" "${l003_r2[0]}"
-        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l004_r1[0]}" "${l004_r2[0]}"   
-    # Concatenate the files for L003 and L004
-        cat ${i}/${i}_0*_S*_L003_R1_001_val_1.fq.gz ${i}/${i}_0*_S*_L004_R1_001_val_1.fq.gz > ${i}_1.fq.gz
-        cat ${i}/${i}_0*_S*_L003_R2_001_val_2.fq.gz ${i}/${i}_0*_S*_L004_R2_001_val_2.fq.gz > ${i}_2.fq.gz
-    
-    elif [[ -f "${l001_r1[0]}" && -f "${l001_r2[0]}" && -f "${l002_r1[0]}" && -f "${l002_r2[0]}" ]]; then
-        echo "Using L001 + L002 for $i"
-        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l001_r1[0]}" "${l001_r2[0]}"
-        trim_galore --phred33 --fastqc --paired --output_dir ./${i} "${l002_r1[0]}" "${l002_r2[0]}"    
-    # Concatenate the files for L001 and L002
-        cat ${i}/${i}_0*_S*_L001_R1_001_val_1.fq.gz ${i}/${i}_0*_S*_L002_R1_001_val_1.fq.gz > ${i}_1.fq.gz
-        cat ${i}/${i}_0*_S*_L001_R2_001_val_2.fq.gz ${i}/${i}_0*_S*_L002_R2_001_val_2.fq.gz > ${i}_2.fq.gz
-    else
-        echo "Error: Missing required lane files for $i"
-    fi
-}
+# Define expected FASTQ file paths (wildcards used to match different sample IDs)
+# Lanes 3 and 4
+l003_r1=($file_prefix/${file_prefix}_0*_S*_L003_R1_001.fastq.gz)
+l003_r2=($file_prefix/${file_prefix}_0*_S*_L003_R2_001.fastq.gz)
+l004_r1=($file_prefix/${file_prefix}_0*_S*_L004_R1_001.fastq.gz)
+l004_r2=($file_prefix/${file_prefix}_0*_S*_L004_R2_001.fastq.gz)
 
-export -f process_sample
+# Lanes 1 and 2
+l001_r1=($file_prefix/${file_prefix}_0*_S*_L001_R1_001.fastq.gz)
+l001_r2=($file_prefix/${file_prefix}_0*_S*_L001_R2_001.fastq.gz)
+l002_r1=($file_prefix/${file_prefix}_0*_S*_L002_R1_001.fastq.gz)
+l002_r2=($file_prefix/${file_prefix}_0*_S*_L002_R2_001.fastq.gz)
 
-# Actually run it, change the number after -j depending on how many samples are being processed
-find . -maxdepth 1 -type d \( -name "CH*" -o -name "CT*" -o -name "CC*" -o -name "ch*" \) | sed 's|^\./||' | parallel --bar -j 38 process_sample {}
+# Check if L003 and L004 FASTQ files are present
+if [[ -f "${l003_r1[0]}" && -f "${l003_r2[0]}" && -f "${l004_r1[0]}" && -f "${l004_r2[0]}" ]]; then
+    echo "Using L003 + L004 for $file_prefix"
+
+    # Run Trim Galore on L003 and L004 paired-end reads
+    trim_galore --phred33 --fastqc --paired --output_dir ./$file_prefix "${l003_r1[0]}" "${l003_r2[0]}"
+    trim_galore --phred33 --fastqc --paired --output_dir ./$file_prefix "${l004_r1[0]}" "${l004_r2[0]}"
+
+    # Concatenate trimmed read 1 and read 2 files from both lanes
+    cat $file_prefix/${file_prefix}_0*_S*_L003_R1_001_val_1.fq.gz $file_prefix/${file_prefix}_0*_S*_L004_R1_001_val_1.fq.gz > ${file_prefix}_1.fq.gz
+    cat $file_prefix/${file_prefix}_0*_S*_L003_R2_001_val_2.fq.gz $file_prefix/${file_prefix}_0*_S*_L004_R2_001_val_2.fq.gz > ${file_prefix}_2.fq.gz
+
+    # Remove intermediate trimmed files to save space
+    rm $file_prefix/*_L003_R*_001_val_*.fq.gz $file_prefix/*_L004_R*_001_val_*.fq.gz
+
+# Else, check if L001 and L002 FASTQ files are present
+elif [[ -f "${l001_r1[0]}" && -f "${l001_r2[0]}" && -f "${l002_r1[0]}" && -f "${l002_r2[0]}" ]]; then
+    echo "Using L001 + L002 for $file_prefix"
+
+    # Run Trim Galore on L001 and L002 paired-end reads
+    trim_galore --phred33 --fastqc --paired --output_dir ./$file_prefix "${l001_r1[0]}" "${l001_r2[0]}"
+    trim_galore --phred33 --fastqc --paired --output_dir ./$file_prefix "${l002_r1[0]}" "${l002_r2[0]}"
+
+    # Concatenate trimmed read 1 and read 2 files from both lanes
+    cat $file_prefix/${file_prefix}_0*_S*_L001_R1_001_val_1.fq.gz $file_prefix/${file_prefix}_0*_S*_L002_R1_001_val_1.fq.gz > ${file_prefix}_1.fq.gz
+    cat $file_prefix/${file_prefix}_0*_S*_L001_R2_001_val_2.fq.gz $file_prefix/${file_prefix}_0*_S*_L002_R2_001_val_2.fq.gz > ${file_prefix}_2.fq.gz 
+
+    # Remove intermediate trimmed files
+    rm $file_prefix/*_L001_R*_001_val_*.fq.gz $file_prefix/*_L002_R*_001_val_*.fq.gz
+
+# If neither lane combination has all required files, show error and exit
+else
+    echo "ERROR: Required FASTQ files not found for $file_prefix"
+    exit 1
+fi
 
 ## DO NOT ADD/EDIT BEYOND THIS LINE ##
 ## Job monitor command to list resource usage
