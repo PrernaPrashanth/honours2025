@@ -11,7 +11,6 @@ module load GCC/11.3.0
 module load Trim_Galore/0.6.10-Python-2.7.18
 module load cutadapt/4.2
 module load parallel/20220722
-#!/bin/bash
 
 # Print the current working directory for debugging
 echo "Running from directory: $(pwd)"
