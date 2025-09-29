@@ -1,93 +1,88 @@
 #!/bin/bash
-#SBATCH --job-name=map_pipeline            
-#SBATCH --nodes=1                            
-#SBATCH --ntasks=1                           
-#SBATCH --cpus-per-task=4                 
-#SBATCH --mem=128G                          
-#SBATCH -t 12:00:00                          
-#SBATCH --array=0-*                          
+#SBATCH --job-name=mapping_pipeline
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=128G
+#SBATCH --tmp=200GB
+#SBATCH -t 72:00:00
+#SBATCH --array=0-933 #change depending on how many samples there are
 
-# please set array to be equal to the number of files you want to process
-
-# -------- Load Required Software Modules --------
-module purge                                 
+# Load modules
+module purge
 module load GCC/11.3.0
 module load OpenMPI/4.1.4
 module load R-bundle-Bioconductor/3.16-R-4.2.2
-module load Subread/2.0.4                    
+module load Subread/2.0.4
 module load BCFtools/1.15.1
 module load Pysam/0.16.0.1-Python-2.7.18
-module load SAMtools/1.16.1                  
+module load SAMtools/1.16.1
 module load tabix/0.2.6
-module load seqtk/1.3                         
+module load seqtk/1.3
 module load parallel
 
-# -------- File Setup --------
-filenames=( *_1.fq.gz )                        # Create an array of all input reads
-active_file=${filenames[$SLURM_ARRAY_TASK_ID]} # Select file based on job array index
-file_prefix="${active_file%%_1.fq.gz}"         # Strip the suffix to get sample prefix
+# File list
+filenames=(
+*_1.fq.gz
+)
+active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
+file_prefix="${active_file%%_1.fq.gz}"
 
-echo "Running pipeline for: $file_prefix"      # Print the current sample being processed
+# Build subread indexes
+# subread-buildindex -o ./plasmodium_transcripts_no_var_rif_stevor_index plasmodium_transcripts_no_var_rif_stevor.fa
+# subread-buildindex -o ./human_genome_index hg38.fa
+# subread-buildindex -o ./ralstonia_genome_index ralstonia_genome.fa
 
-# === 1. HUMAN MAPPING ===
-# Align to the human genome to remove host reads
-subread-align -t 0 -i human_genome_index -r "${file_prefix}_1.fq.gz" -R "${file_prefix}_2.fq.gz" -o "${file_prefix}_human_mapped.sam" --SAMoutput
+echo "Running pipeline for: $file_prefix"
 
-# Extract read IDs that did not align to human (flag 4)
-samtools view -f 4 "${file_prefix}_human_mapped.sam" | cut -f1 > "${file_prefix}_unmapped_reads.txt"
-sort -u "${file_prefix}_unmapped_reads.txt" > "${file_prefix}_unmapped_reads_noDup.txt"
+# to ensure the base directory does not run out of space while creating 934 SAM files, the mapping process is done in the tmp/ directory with the final polymorphic_reads_*.fq outputs moved to the base directory at the end
+mv "${file_prefix}_1.fq.gz" /tmp
+mv "${file_prefix}_2.fq.gz" /tmp
 
-# Extract unmapped reads from original FASTQ files using seqtk
-seqtk subseq "${file_prefix}_1.fq.gz" "${file_prefix}_unmapped_reads_noDup.txt" > "${file_prefix}_human_unmapped_1.fq"
-seqtk subseq "${file_prefix}_2.fq.gz" "${file_prefix}_unmapped_reads_noDup.txt" > "${file_prefix}_human_unmapped_2.fq" &&\
+#mkdir polymorphic_reads/
+#mkdir pf_core_reads/
 
-rm "${file_prefix}_human_mapped.sam" "${file_prefix}_human_mapped.sam.indel.vcf" "${file_prefix}_unmapped_reads.txt"
+# Ralstonia mapping
+subread-align -t 0 --multiMapping -B 10 -i subread_indexes/ralstonia/ralstonia_index -r "/tmp/${file_prefix}_1.fq.gz" -R "/tmp/${file_prefix}_2.fq.gz" -o "/tmp/${file_prefix}_ralstonia_mapped.sam" --SAMoutput || { echo "$file_prefix" >> retrim_files.txt; exit 1; }
+samtools view -f 4 "/tmp/${file_prefix}_ralstonia_mapped.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_unmapped_reads.txt"
 
-# === 2. PF MAPPING ===
-# Align human-unmapped reads to the P. falciparum transcriptome (excluding var genes)
-subread-align -t 0 -i plasmodium_transcripts_novar_index -r "${file_prefix}_human_unmapped_1.fq" -R "${file_prefix}_human_unmapped_2.fq" -o "${file_prefix}_mapped_pf_novar.sam" --SAMoutput
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_2.fq" &&\
 
-# Extract read IDs not mapping to Pf
-samtools view -f 4 "${file_prefix}_mapped_pf_novar.sam" | cut -f1 > "${file_prefix}_Pf_unmapped_reads.txt"
-sort -u "${file_prefix}_Pf_unmapped_reads.txt" > "${file_prefix}_Pf_unmapped_reads_noDup.txt"
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_2.fq" &&\
+#rm "${file_prefix}_ralstonia_mapped.sam" "${file_prefix}_ralstonia_mapped.sam.indel.vcf"
 
-# Convert SAM to sorted BAM and clean up
-samtools view -Sb "${file_prefix}_mapped_pf_novar.sam" | samtools sort -o "${file_prefix}_mapped_pf_novar.bam" &&\
+# Pf core genome mapping
 
-rm "${file_prefix}_mapped_pf_novar.sam" "${file_prefix}_mapped_pf_novar.sam.indel.vcf"
+subread-align -t 0 --multiMapping -B 10 -i subread_indexes/pf_core/pf_core_index -r "/tmp/${file_prefix}_ralstonia_unmapped_1.fq" -R "/tmp/${file_prefix}_ralstonia_unmapped_2.fq" -o "/tmp/${file_prefix}_mapped_pf_core.sam" --SAMoutput
+samtools view -f 4 "/tmp/${file_prefix}_mapped_pf_core.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_Pf_core_unmapped_reads_multimap.txt"
+samtools view -F 4 "/tmp/${file_prefix}_mapped_pf_core.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_Pf_core_mapped_reads_multimap.txt"
 
-# === 3. RALSTONIA MAPPING ===
-# Align same human-unmapped reads to Ralstonia genome (possible contaminant)
-subread-align -t 0 -i ralstonia_index -r "${file_prefix}_human_unmapped_1.fq" -R "${file_prefix}_human_unmapped_2.fq" -o "${file_prefix}_ralstonia_mapped.sam" --SAMoutput
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_Pf_core_unmapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_unmapped_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_Pf_core_unmapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_unmapped_2.fq"
 
-# Extract reads not mapping to Ralstonia
-samtools view -f 4 "${file_prefix}_ralstonia_mapped.sam" | cut -f1 > "${file_prefix}_ralstonia_unmapped_reads.txt"
-sort -u "${file_prefix}_ralstonia_unmapped_reads.txt" > "${file_prefix}_ralstonia_unmapped_reads_noDup.txt" &&\
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_Pf_core_mapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_core_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_Pf_core_mapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_core_2.fq" &&\
+#rm "${file_prefix}_mapped_pf_core.sam" "${file_prefix}_mapped_pf_core.sam.indel.vcf" "${file_prefix}_ralstonia_unmapped_1.fq" "${file_prefix}_ralstonia_unmapped_2.fq"
 
-rm "${file_prefix}_ralstonia_mapped.sam" "${file_prefix}_ralstonia_mapped.sam.indel.vcf" "${file_prefix}_ralstonia_unmapped_reads.txt"
+mv "/tmp/${file_prefix}_Pf_core_1.fq" ./pf_core_reads/
+mv "/tmp/${file_prefix}_Pf_core_2.fq" ./pf_core_reads/
 
-# === 4. POLYMORPHIC READS ===
-# Combine Pf-unmapped and Ralstonia-unmapped reads
-cat "${file_prefix}_Pf_unmapped_reads_noDup.txt" "${file_prefix}_ralstonia_unmapped_reads_noDup.txt" | sort -u > "${file_prefix}_polymorphic_reads_ids_noDuplicates.txt"
+# Human mapping
 
-# Extract corresponding polymorphic reads from original FASTQs
-seqtk subseq "${file_prefix}_1.fq.gz" "${file_prefix}_polymorphic_reads_ids_noDuplicates.txt" > "${file_prefix}_polymorphic_reads_1.fq"
-seqtk subseq "${file_prefix}_2.fq.gz" "${file_prefix}_polymorphic_reads_ids_noDuplicates.txt" > "${file_prefix}_polymorphic_reads_2.fq" &&\
+subread-align -t 0 --multiMapping -B 10 -i subread_indexes/human/human_index -r "/tmp/${file_prefix}_Pf_unmapped_1.fq" -R "/tmp/${file_prefix}_Pf_unmapped_2.fq" -o "/tmp/${file_prefix}_human_mapped.sam" --SAMoutput
+samtools view -f 4 "/tmp/${file_prefix}_human_mapped.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_human_unmapped_reads.txt"
 
-rm "${file_prefix}_Pf_unmapped_reads.txt"
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_human_unmapped_reads.txt" > "/tmp/${file_prefix}_polymorphic_reads_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_human_unmapped_reads.txt" > "/tmp/${file_prefix}_polymorphic_reads_2.fq" &&\
+#rm "${file_prefix}_human_mapped.sam" "${file_prefix}_human_mapped.sam.indel.vcf" "${file_prefix}_Pf_unmapped_1.fq" "${file_prefix}_Pf_unmapped_2.fq" "${file_prefix}_1.fq.gz" "${file_prefix}_2.fq.gz"
 
-# === 5. ORGANIZE OUTPUT FILES ===
-# Move files to appropriate directories
-mv "${file_prefix}_1.fq.gz" trim_cat_fq/
-mv "${file_prefix}_2.fq.gz" trim_cat_fq/
-mv "${file_prefix}_Pf_unmapped_reads_noDup.txt" mapped_txt/Pf_unmapped_reads_txt/
-mv "${file_prefix}_unmapped_reads_noDup.txt" mapped_txt/unmapped_reads_noDup_txt/
-mv "${file_prefix}_ralstonia_unmapped_reads_noDup.txt" mapped_txt/ralstonia_unmapped_ids_noDup_txt/
-mv "${file_prefix}_polymorphic_reads_ids_noDuplicates.txt" mapped_txt/polymorphic_reads/
-mv "${file_prefix}_mapped_pf_novar.bam" mapped_txt/mapped_pf_novar_bam/
-mv "${file_prefix}_human_unmapped_1.fq" mapped_txt/human_unmapped_fq/
-mv "${file_prefix}_human_unmapped_2.fq" mapped_txt/human_unmapped_fq/
+mv "/tmp/${file_prefix}_polymorphic_reads_1.fq" ./polymorphic_reads/
+mv "/tmp/${file_prefix}_polymorphic_reads_2.fq" ./polymorphic_reads/
 
-# === DO NOT MODIFY BELOW THIS LINE ===
-# Track job performance and resource usage
+##DO NOT ADD/EDIT BEYOND THIS LINE##
+
+##Job monitor command to list the resource usage
+
 my-job-stats -a -n -s
