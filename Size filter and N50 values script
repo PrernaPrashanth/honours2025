@@ -30,23 +30,22 @@ file_prefix="${active_file}"
 echo "Sample: $file_prefix"
 
 # 1. Run Python script to process HMM annotations and filter out transcripts < 500 bp
-#python process_hmm_annotations.py "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" "$file_prefix"
+python process_hmm_annotations.py "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" "$file_prefix"
 
 # 2. Extract significant variant transcripts and compute N50
-#seqtk subseq "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" "${file_prefix}_assembled_id_sig_annotation.txt" > "${file_prefix}_sig_var_transcripts.fasta"
-
-#stats.sh in="${file_prefix}_sig_var_transcripts.fasta" > "${file_prefix}_N50.txt"
+seqtk subseq "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" "${file_prefix}_assembled_id_sig_annotation.txt" > "${file_prefix}_sig_var_transcripts.fasta"
+stats.sh in="${file_prefix}_sig_var_transcripts.fasta" > "${file_prefix}_N50.txt"
 
 # 3. Generate assembled_id_sig_domains (var domains that had a high significance hit during annotation)
-#grep -F -f "${file_prefix}_assembled_id_sig_annotation.txt" "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" | \
-#awk -F'[[:blank:]]' -v OFS="\t" '{$1=$1; print}' | \
-#awk '{gsub(/_clustalo_align_v2_v3/,"\t")}1' | \
-#awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$1,$3,$4,$5,$6,$7,$8}' | \
-#awk 'BEGIN{FS=OFS="\t"}{gsub(/\|/, "\t", $1)} 1' | \
-#awk -v var="$file_prefix" 'BEGIN{FS=OFS="\t"}{print var"_"$1"_"$3,$4,$6,$7,$8,$9,$10}' | \
-#awk -v var="$file_prefix" 'BEGIN{FS=OFS="\t"}{gsub(/\-/, "\t", $5)} 1' > "${file_prefix}_assembled_id_sig_domains"
+grep -F -f "${file_prefix}_assembled_id_sig_annotation.txt" "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" | \
+awk -F'[[:blank:]]' -v OFS="\t" '{$1=$1; print}' | \
+awk '{gsub(/_clustalo_align_v2_v3/,"\t")}1' | \
+awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$1,$3,$4,$5,$6,$7,$8}' | \
+awk 'BEGIN{FS=OFS="\t"}{gsub(/\|/, "\t", $1)} 1' | \
+awk -v var="$file_prefix" 'BEGIN{FS=OFS="\t"}{print var"_"$1"_"$3,$4,$6,$7,$8,$9,$10}' | \
+awk -v var="$file_prefix" 'BEGIN{FS=OFS="\t"}{gsub(/\-/, "\t", $5)} 1' > "${file_prefix}_assembled_id_sig_domains"
 
-# 4. Run R script to find unique domains (if there are various subtypes e.g. DBLα1.1 and DBLα1.1.1, collapse them into the same group - DBLα1.1)
+# 4. Run R script to find unique domains (if there are various CIDRα1.1 in the transcript, append a suffix to make them unique, e.g. CIDRα1.1 and CIDRα1.1.1)
 #./unique_domains.r "${file_prefix}"
 
 mkdir bed_files/ extracted_fasta/
@@ -56,7 +55,6 @@ mkdir bed_files/ extracted_fasta/
 
 # 6. Index FASTA and extract var domain sequences with bedtools
 samtools faidx "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta"
-
 bedtools getfasta -fi "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" -bed "bed_files/${file_prefix}.bed" -name -fo "extracted_fasta/${file_prefix}.extracted.fasta"
 
 echo "Processed ${file_prefix}"
