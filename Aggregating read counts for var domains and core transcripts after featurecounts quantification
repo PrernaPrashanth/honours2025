@@ -1,0 +1,63 @@
+#!/bin/bash
+#SBATCH --job-name=extract_counts
+#SBATCH --output=logs/extract_%A_%a.out
+#SBATCH --time=12:00:00
+#SBATCH --mem=32G
+#SBATCH --array=0-933
+
+filenames=(
+*_featureCounts.txt
+)
+      
+active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
+file_prefix="${active_file%%_featureCounts.txt}"
+
+mkdir -p featurecounts_output
+
+if [ ! -f "$active_file" ]; then
+  echo "Warning: $active_file not found, skipping..."
+  exit 0
+fi
+      
+echo "Processing $active_file..."
+{
+  read header1
+  read header2
+  declare -A counts
+
+  while read -r line; do
+    transcript=$(echo "$line" | cut -f1)
+    count=$(echo "$line" | cut -f7)
+
+    # Normalize transcript/domain name
+    if [[ $transcript == mal_mito* ]]; then  
+      key="$transcript"
+
+    elif [[ $transcript == PF3D7* ]]; then
+      key="$transcript"
+
+    elif [[ $transcript =~ ^(CIDR|DBL|NTS|NTSA)[a-zA-Z0-9]+_ ]]; then
+      key=$(echo "$transcript" | sed -E 's/^((CIDR|DBL|NTS|NTSA)[^_]+)_.*/\1/')
+
+    else
+      key="$transcript"
+    fi
+
+    if [[ -n "${counts[$key]}" ]]; then
+      counts[$key]=$(awk "BEGIN {print ${counts[$key]} + $count}")
+    else
+      counts[$key]=$count
+    fi
+  done
+ 
+  for key in "${!counts[@]}"; do
+    echo -e "$key\t${counts[$key]}"
+  done | sort
+
+} < "$active_file" > "featurecounts_output/${file_prefix}_transcripts_count.txt"
+    
+echo "Done: featurecounts_output/${file_prefix}_transcripts_count.txt"
+
+## DO NOT ADD/EDIT BEYOND THIS LINE ##
+## Job monitor command to list resource usage
+my-job-stats -a -n -s  
