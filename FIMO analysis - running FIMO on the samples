@@ -1,0 +1,26 @@
+#!/bin/bash
+#SBATCH --job-name=icam1_fimo
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH -t 04:00:00
+#SBATCH --array=0-836
+
+module load MEME/5.5.3
+
+# prior to this, the DBLb filtered fasta files were modified to ensure the sequences were all in one line, hence the name *_singleline.fasta
+
+files=( *_singleline.fasta )
+
+active_file=${files[$SLURM_ARRAY_TASK_ID]}
+file_prefix=$(basename "$active_file" _DBLb_aa_singleline.fasta)
+
+echo "Processing $active_file ..."
+
+mkdir -p results
+
+# Run FIMO (regex motif search, output as text)
+fimo --text --verbosity 1 icam1_motifs.meme "$active_file" > results/${file_prefix}_icam1_hits.tsv
+
+echo "Finished processing $file_prefix"
