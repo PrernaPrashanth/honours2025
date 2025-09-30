@@ -1,0 +1,66 @@
+#!/bin/bash
+
+#SBATCH --job-name=salmon
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=5
+#SBATCH --mem=64G
+#SBATCH -t 12:00:00
+#SBATCH --array=0-933
+
+# Load required modules
+module load Salmon/1.10.1
+
+# Create array of Pf_core_1 files (each array task processes one sample)
+filenames=(
+*_polymorphic__reads_1.fq
+)
+
+active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
+file_prefix="${active_file%%_polymorphic_reads_1.fq}"
+
+echo "active_file: $active_file"
+echo "file_prefix: $file_prefix"
+
+# Merge polymorphic reads + Pf_core reads to ensure the downstream salmon step can quantify both core and var reads for read counts
+if [[ -f "${file_prefix}_polymorphic_reads_1.fq" && -f "${file_prefix}_polymorphic_reads_2.fq" ]]; then
+     cat "${file_prefix}_polymorphic_reads_1.fq" "${file_prefix}_Pf_core_1.fq" > "${file_prefix}_merged_1.fq"
+     cat "${file_prefix}_polymorphic_reads_2.fq" "${file_prefix}_Pf_core_2.fq" > "${file_prefix}_merged_2.fq"
+     echo "Merged reads for $file_prefix"
+
+    # Optional: delete original files to save space
+    rm -v "${file_prefix}_Pf_core_1.fq" "${file_prefix}_Pf_core_2.fq"
+    rm -v "${file_prefix}_polymorphic_reads_1.fq" "${file_prefix}_polymorphic_reads_2.fq"
+ else
+     echo "Skipping merge for $file_prefix: polymorphic_reads files missing"
+ fi
+
+# Step 1: Optional - generate decoys.txt if needed; consists of Pf genome with no PfEMP1s
+awk '/^>/ {print substr($0, 2)}' PlasmoDB-68_Pfalciparum3D7_Genome_no_PfEMP1.fasta > decoys.txt
+
+# Step 2: Combine var domain and core transcripts
+cat extracted_fasta/"${file_prefix}.extracted.fasta" Pf3D7_transcripts_no_var_no_PfEMP1.fa > "cleaned_${file_prefix}_with_core.fasta" &&\
+
+# Step 3: Add genome to make final reference
+cat "cleaned_${file_prefix}_with_core.fasta" PlasmoDB-68_Pfalciparum3D7_Genome_no_PfEMP1.fasta > "${file_prefix}_index_input.fasta" &&\
+
+# Step 4: Build the Salmon index for this sample
+salmon index -t "${file_prefix}_index_input.fasta" -i "${file_prefix}_domains_reference" --decoys decoys.txt -k 31 --threads 5 &&\
+
+# Step 5: Quantify using Salmon
+salmon quant -i "${file_prefix}_domains_reference" -l IU -1 "${file_prefix}_merged_1.fq" -2 "${file_prefix}_merged_2.fq" --validateMappings -o "${file_prefix}_quant"
+
+# Step 6: Save quant.sf to summary folder
+mkdir -p sample_specific_quants
+cp "${file_prefix}_quant/quant.sf" "sample_specific_quants/${file_prefix}_quant.sf" &&\
+
+echo "Finished processing $file_prefix"
+    
+mv "cleaned_${file_prefix}_with_core.fasta" index_reference_fasta/"cleaned_${file_prefix}_with_core.fasta"
+mv "${file_prefix}_index_input.fasta" index_reference_fasta/"${file_prefix}_index_input.fasta"
+
+rm "${file_prefix}_merged_1.fq" "${file_prefix}_merged_2.fq"
+   
+##DO NOT ADD/EDIT BEYOND THIS LINE##
+##Job monitor command to list the resource usage
+my-job-stats -a -n -s
