@@ -16,7 +16,7 @@ domain_min_lengths <- c(
 # Function to extract domain subtype
 extract_domain_subtype <- function(domain_name) {
   # Match CIDR, DBL, or NTS subtype anywhere after underscore
-  m <- regmatches(domainname, regexpr("(CIDR[a-zA-Z0-9]+|DBL[a-zA-Z0-9]+|NTS[A-Za-z0-9]+)", domainname))
+  m <- regmatches(domain_name, regexpr("(CIDR[a-zA-Z0-9]+|DBL[a-zA-Z0-9]+|NTS[A-Za-z0-9]+)", domain_name))
   if(length(m) == 0) return(NA)
   sub("", "", m) # remove the leading underscore
 }
