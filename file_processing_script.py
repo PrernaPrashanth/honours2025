@@ -4,8 +4,8 @@ import glob
 import os
 
 # Read the Excel sheet with disease classification
-# Replace 'your_excel_file.xlsx' with your actual Excel file name
-excel_df = pd.read_excel('Book1.xlsx')  # Adjust sheet name if needed
+# Replace 'Book1.xlsx' with relevant file that contains sample information (contains sample name followed by disease classification)
+excel_df = pd.read_excel('Book1.xlsx') 
 
 # Find all files matching the pattern *_transcripts_count.txt
 file_pattern = "*_transcript_counts.txt"
