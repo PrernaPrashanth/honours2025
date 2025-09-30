@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+
+motifs = [
+    "ILYAKARIVASNGGPGYYNTEVQKKDRSVYDFLYELHLQNGGKKGPPPATHPYK",
+    "MLYAKARITAINGGPGYYNTEVQEEDKPVVDFLYNLYLQNGGKKGPPPDTHRVK"
+]
+
+amino_acids = list("ACDEFGHIKLMNPQRSTVWY")  # MEME order
+epsilon = 0.01  # small probability for other amino acids
+
+with open("icam1_motifs.meme", "w") as out:
+    out.write("MEME version 5\n\n")
+    out.write("ALPHABET= ACDEFGHIKLMNPQRSTVWY\n")
+    out.write("strands: +\n\n")
+
+    for idx, motif in enumerate(motifs, start=1):
+        out.write(f"MOTIF ICAM1_{idx}\n")
+        out.write(f"letter-probability matrix: alength=20 w={len(motif)} nsites=1 E=0\n")
+        for aa in motif:
+            row = [str(epsilon / 19)] * 20
+            col = amino_acids.index(aa)
+            row[col] = str(1 - epsilon)
+            out.write(" ".join(row) + "\n")
+        out.write("\n")
