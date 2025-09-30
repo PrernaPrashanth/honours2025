@@ -1,0 +1,35 @@
+#!/bin/bash
+#SBATCH --job-name=icam1_motif
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=5
+#SBATCH --mem=16G
+#SBATCH -t 04:00:00
+#SBATCH --array=0-836
+
+module load EMBOSS/6.6.0
+
+files=( *.extracted.fasta )
+
+active_file=${files[$SLURM_ARRAY_TASK_ID]}
+file_prefix=$(basename "$active_file" .extracted.fasta)
+
+echo "Processing $active_file ..."
+
+# Filter only DBLb sequences
+mkdir -p filtered
+FILTERED="filtered/${file_prefix}_DBLb.fasta"
+awk '/^>/{header=$0; getline seq; if(header ~ /DBLb[0-9]+/i) print header"\n"seq}' "$active_file" > "$FILTERED"
+
+# Skip if no DBLb sequences found
+if [ ! -s "$FILTERED" ]; then
+    echo "No DBLb sequences found in $active_file, skipping."
+    exit 0
+fi
+
+# Translate in all 6 frames
+mkdir -p translated
+TRANSLATED="translated/${file_prefix}_DBLb_aa.fasta"
+transeq -sequence "$FILTERED" -outseq "$TRANSLATED" -frame 6
+
+echo "Finished processing $file_prefix"
