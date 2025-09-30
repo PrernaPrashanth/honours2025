@@ -1,3 +1,20 @@
+################################################################################
+# REQUIRED INPUT FILES
+################################################################################
+# Data files (in ~/Downloads/):
+# - geneID_mappings.txt           : Gene ID conversion table
+# - SM_domain_counts.txt          : Raw count matrix
+# - annotation_simple.txt         : Gene annotations
+# - classifications_samples.xlsx  : Sample metadata
+# - control_genes_gerry.txt       : Housekeeping genes for RUV
+# - _rpkm_7SexualAndAsexualLifeStages_suetal.csv : Reference stage data
+# - gene_names.xlsx              : Gene name annotations
+# - final_filtered_icam_binding.xlsx : ICAM1 motif hits
+# - interdomain_mapping.xlsx     : Domain category mappings
+# FASTA files (in ~/Desktop/extracted_fasta/):
+# - *.extracted.fasta            : Sample-specific domain sequences
+################################################################################
+
 # Load libraries
 library(edgeR); library(limma); library(quadprog); library(ruv)
 library(ggplot2); library(reshape2); library(EDASeq); library(RColorBrewer)
@@ -299,6 +316,10 @@ gg_stages <- ggplot(ourPlotData, aes(x=factor(sample), y=proportion, fill=factor
 print(gg_stages)
 ggsave("stage_proportions.pdf", gg_stages, width = 16, height = 12)
 
+###################################################################################################################
+# Voom analysis (DGE)
+###################################################################################################################
+
 # Normalization and voom
 dge <- calcNormFactors(dge, method="TMM")
 dge$samples$group <- categories
@@ -355,7 +376,9 @@ disease_classifications <- list(
   acidosis = create_syndrome("L")
 )
 
-# Helper functions
+###################################################################################################################
+# Helper functions - RUV, PCA plots, MA plots, volcano plots, etc
+###################################################################################################################
 compute_real_ruv4 <- function(expression_data, group_factor, control_genes, k_factors = 2) {
   
   # Convert group factor to numeric matrix (like original pipeline)
@@ -431,14 +454,6 @@ create_pca_plot <- function(expression_matrix, categories, title) {
       legend.text = element_text(size = 12)
     )
 }
-
-
-###################################################################################################################
-# MA PLOT FUNCTION
-###################################################################################################################
-
-library(ggplot2)
-library(ggrepel)  # for nice non-overlapping labels
 
 create_ma_plot <- function(limma_results, title) {
   ma_data <- limma_results
@@ -669,7 +684,7 @@ for(disease_name in names(disease_classifications)) {
 }
 
 # =============================================================================
-# GENE ANNOTATION FUNCTIONS
+# Add gene annotation information to the DGE results
 # =============================================================================
 
 # Function to read gene annotations from Excel file
@@ -701,10 +716,8 @@ export_de_results <- function(limma_results, method_name, analysis_type,
   
   # Add annotations if provided
   if (!is.null(gene_annotations)) {
-    # Assume the gene annotations have a column that matches with gene IDs
-    # You may need to adjust the column names based on your Excel file structure
     annotation_cols <- colnames(gene_annotations)
-    gene_id_col <- annotation_cols[1]  # Assume first column contains gene IDs
+    gene_id_col <- annotation_cols[1]
     
     limma_results <- merge(limma_results, gene_annotations, 
                           by.x = "gene", by.y = gene_id_col, 
@@ -738,16 +751,7 @@ export_de_results <- function(limma_results, method_name, analysis_type,
   return(limma_results)
 }
 
-# =============================================================================
-# LOAD GENE ANNOTATIONS
-# =============================================================================
-cat("=== LOADING GENE ANNOTATIONS ===\n")
 gene_annotations <- read_gene_annotations("gene_names.xlsx")
-
-# =============================================================================
-# EXPORT ALL LIMMA-VOOM RESULTS WITH ANNOTATIONS
-# =============================================================================
-cat("=== EXPORTING LIMMA-VOOM RESULTS WITH ANNOTATIONS ===\n")
 
 # Export all results with annotations for each disease classification
 limma_exported <- list()
@@ -811,6 +815,7 @@ cat("Summary table exported to: limma_analysis_summary.csv\n")
 
 # Print summary
 print(summary_results)
+
 ###################################################################################################################
 # COMPREHENSIVE HEATMAP ANALYSIS WITH CORE AND VAR GENE SEPARATION
 ###################################################################################################################
@@ -850,7 +855,7 @@ if("severity" %in% names(all_results)) {
     
     # Create separate heatmaps for core and var genes
     if(length(core_genes) > 0) {  
-      # Save the pheatmap object
+      # Save the pheatmap object - for further analysis of determining samples in different clusters and running GSEA for these clusters versus asymptomatic samples
       ph <- pheatmap(
         heatmap_data[core_genes, , drop=FALSE], 
         show_rownames = ifelse(length(core_genes) <= 60, TRUE, FALSE),
@@ -960,7 +965,7 @@ if("severity" %in% names(all_results)) {
     }    
   }
 }
-    #sig var genes only#
+    #significant var genes only#
     if(length(var_genes) > 0) {
       pheatmap(heatmap_data[var_genes, , drop=FALSE], 
                show_rownames = ifelse(length(var_genes) <= 60, TRUE, FALSE),
@@ -971,18 +976,8 @@ if("severity" %in% names(all_results)) {
                filename = file.path(plots_dir, "heatmap_severity_sig_var_genes.pdf"),
                width = 20, height = min(16, max(10, length(var_genes) * 0.15 + 6)))
     }
-    
-    # Combined heatmap
-    pheatmap(heatmap_data, show_rownames = ifelse(length(matching_genes) <= 60, TRUE, FALSE),
-             show_colnames = FALSE, scale = "row", clustering_distance_rows = "correlation",
-             cluster_cols = TRUE, annotation_col = col_annot, annotation_colors = annotation_colors,
-             breaks = seq(-2, 2, length.out = 100),
-             main = paste("DE Genes: Library Size + All Stages + RUV\nSeverity classification"),
-             filename = file.path(plots_dir, "heatmap_severity_all_genes.pdf"),
-             width = 20, height = min(16, max(10, length(matching_genes) * 0.15 + 6)))
-
-###for all var genes###
-
+ 
+  #for all var genes
 if("severity" %in% names(all_results)) {
   method_index <- 6  # Library_Size_All_Stages_RUV
   limma_results <- all_results[["severity"]][[method_index]]
@@ -1034,8 +1029,7 @@ if("severity" %in% names(all_results)) {
   }
 }
 
-###RPKM based heatmap###
-
+#RPKM based heatmap
 if("severity" %in% names(all_results)) {
   method_index <- 6  # Library_Size_All_Stages_RUV
   limma_results <- all_results[["severity"]][[method_index]]
@@ -1048,11 +1042,11 @@ if("severity" %in% names(all_results)) {
   var_genes_all <- rownames(our_log_rpkm)[!grepl("^PF3D7", rownames(our_log_rpkm))]
   var_genes_sig <- intersect(var_genes_all, sig_gene_ids)
   
-  # FIXED: Only use samples that exist in both our_log_rpkm AND dge$samples
+  # Only use samples that exist in both our_log_rpkm AND dge$samples
   common_samples <- intersect(colnames(our_log_rpkm), rownames(dge$samples))
   our_log_rpkm_filtered <- our_log_rpkm[, common_samples, drop=FALSE]
   
-  # Prepare sample annotations (syndromes) - only for common samples
+  # Prepare sample annotations (syndromes)
   disease_codes <- dge$samples[common_samples, "Disease"]
   disease_labels <- case_when(
     disease_codes == "U" ~ "Asymptomatic",
@@ -1106,12 +1100,14 @@ if("severity" %in% names(all_results)) {
   }
 }
 
-####bootstrapped dendrogram for sig var genes####
+###################################################################################################################
+# BOOTSTRAPPED DENDROGRAMS FOR VAR GENES
+###################################################################################################################
 
 if(length(var_genes) > 1) {
   library(pvclust)
   
-  # Run pvclust
+  # Run pvclust (for significant var genes)
   pv_result <- pvclust(
     t(heatmap_data[var_genes, , drop = FALSE]),  # transpose if needed
     method.hclust = "average",
@@ -1132,7 +1128,7 @@ if(length(var_genes) > 1) {
   ordered_genes <- var_genes
 }
 
-###bootstrapped dendogram for all var genes###
+#bootstrapped dendogram for all var genes
 
 if(length(rownames(heatmap_data)) > 1) {
   library(pvclust)
@@ -1166,7 +1162,7 @@ if(length(rownames(heatmap_data)) > 1) {
 }
 
 ###################################################################################################################
-# BOXPLOTS FOR VAR GENES
+# BOXPLOTS FOR VAR GENES EXPRESSION LEVELS
 ###################################################################################################################
 # Boxplots for var genes
 var_genes <- rownames(v$E)[!grepl("^PF3D7", rownames(v$E))]
@@ -1217,236 +1213,149 @@ for(page in 1:n_pages){
          plot = plot_page, width = 16, height = 8)
 }
 
-###################################################################################################################
-# ICAM1 binding motif boxplots
-###################################################################################################################
-####plotting based on cerebral malaria or severe malaria but not cerebral####
+###################################################################################################
+# ICAM1-binding DBLb domain expression analysis
+###################################################################################################
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(readxl)
-# Subset to ICAM1-binding DBLb domains
-icam1_domains <- c("DBLb1","DBLb11","DBLb12","DBLb3","DBLb4","DBLb5","DBLb8")
+library(tibble)
 
+icam1_domains <- c("DBLb1","DBLb11","DBLb12","DBLb3","DBLb4","DBLb5","DBLb8")
+plots_dir <- "plots"
+dir.create(plots_dir, showWarnings = FALSE)
+
+# final_filtered_icam_binding.xlsx = FIMO ICAM1 motif hits
 icam_hits <- read_excel("final_filtered_icam_binding.xlsx")
 
-# Only keep samples that had ICAM1 hits
-icam1_samples <- unique(icam_hits$Sample)
+###################################################################################################
+# PART 1: Cerebral vs non-cerebral severe malaria comparison of ICAM-1 binding motif levels
 
-# Intersect with samples that have CM info
+# Keep only samples with ICAM1 hits and CM info
+icam1_samples <- unique(icam_hits$Sample)
 valid_samples <- intersect(icam1_samples, names(disease_classifications$cerebral))
 
-# Subset expression matrix BEFORE pivoting
+# Subset expression matrix to ICAM1-binding domains
 dblb_expr <- v$E[rownames(v$E) %in% icam1_domains, valid_samples]
 
-# Convert to long format
+# Reshape to long format and add CM status
 dblb_long <- as.data.frame(dblb_expr) %>%
-  tibble::rownames_to_column("GeneID") %>%
+  rownames_to_column("GeneID") %>%
   pivot_longer(-GeneID, names_to = "sample", values_to = "expression") %>%
-  mutate(CM_status = ifelse(disease_classifications$cerebral[sample], "severe_cerebral", "severe_nonCerebral")) %>%
-  filter(!is.na(CM_status))  # <<< REMOVE rows with NA
+  mutate(
+    CM_status = ifelse(disease_classifications$cerebral[sample],
+                       "severe_cerebral", "severe_nonCerebral")
+  ) %>%
+  filter(!is.na(CM_status))
 
-# Aggregate across domains per sample
+# Aggregate expression per sample
 dblb_agg <- dblb_long %>%
   group_by(sample, CM_status) %>%
   summarise(expression_sum = sum(expression), .groups = "drop")
 
 # Plot
-ggplot(dblb_agg, aes(x = CM_status, y = expression_sum, fill = CM_status)) +
+p1 <- ggplot(dblb_agg, aes(x = CM_status, y = expression_sum, fill = CM_status)) +
   geom_boxplot(outlier.size = 0.5) +
-  scale_fill_manual(values = c("severe_cerebral" = "#d7191c", "severe_nonCerebral" = "#2c7bb6")) +
-  theme_bw() +
-  theme(axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14, face = "bold")) +
+  scale_fill_manual(values = c("severe_cerebral" = "#d7191c",
+                               "severe_nonCerebral" = "#2c7bb6")) +
+  theme_bw(base_size = 14) +
   labs(title = "ICAM1-binding DBLb domain expression",
        x = "Cerebral Malaria status", y = "Aggregated logCPM expression")
+ggsave(file.path(plots_dir, "ICAM1_DBLb_CM_boxplot.pdf"), p1, width = 6, height = 6)
 
-####plotting based on DC4 vs non-DC4 ICAM-1 binding####
-# -------------------------
-# Parameters
-# -------------------------
-icam1_domains <- c("DBLb1","DBLb11","DBLb12",
-                   "DBLb3","DBLb4","DBLb5","DBLb8")
+###################################################################################################
+# PART 2: DC4 vs Non-DC4 ICAM-1 binding motif comparison
 
-# Load FIMO-positive ICAM1 hits
-icam_hits <- read_excel("final_filtered_icam_binding.xlsx")
-
-# DC4 samples: motif_alt_id == "ICAM1_1"
+# Define DC4-positive samples
 dc4_samples <- unique(icam_hits$Sample[icam_hits$motif_alt_id == "ICAM1_1"])
 
-# -------------------------
-# Subset expression matrix
-# -------------------------
-dblb_expr <- v$E[rownames(v$E) %in% icam1_domains, ]
+# Subset expression matrix (ICAM1 domains, samples with CM info)
+samples_to_keep <- intersect(colnames(v$E), names(disease_classifications$cerebral))
+dblb_expr <- v$E[rownames(v$E) %in% icam1_domains, samples_to_keep]
 
-# Keep only samples that have CM info (to be consistent with previous scripts)
-samples_to_keep <- intersect(colnames(dblb_expr), names(disease_classifications$cerebral))
-dblb_expr <- dblb_expr[, samples_to_keep]
-
-# -------------------------
-# Prepare long-format dataframe
-# -------------------------
-dblb_df <- as.data.frame(dblb_expr)
-dblb_df$GeneID <- rownames(dblb_expr)
-
-dblb_long <- dblb_df %>%
+# Long format with DC4 status
+dblb_long <- as.data.frame(dblb_expr) %>%
+  rownames_to_column("GeneID") %>%
   pivot_longer(-GeneID, names_to = "sample", values_to = "expression") %>%
   mutate(
     DC4_status = ifelse(sample %in% dc4_samples, "DC4", "Non-DC4")
   ) %>%
-  filter(!is.na(DC4_status)) %>%
-  mutate(DC4_status = factor(DC4_status, levels = c("Non-DC4", "DC4")))
+  filter(!is.na(DC4_status))
 
-# -------------------------
-# Aggregate across domains per sample
-# -------------------------
+# Aggregate per sample
 dblb_agg <- dblb_long %>%
   group_by(sample, DC4_status) %>%
   summarise(expression_sum = sum(expression), .groups = "drop")
 
-# -------------------------
-# Plot boxplot
-# -------------------------
-plots_dir <- "plots"
-dir.create(plots_dir, showWarnings = FALSE)
-
-ggplot(dblb_agg, aes(x = DC4_status, y = expression_sum, fill = DC4_status)) +
+# Plot
+p2 <- ggplot(dblb_agg, aes(x = DC4_status, y = expression_sum, fill = DC4_status)) +
   geom_boxplot(outlier.size = 0.5) +
   scale_fill_manual(values = c("DC4" = "#d7191c", "Non-DC4" = "#2c7bb6")) +
-  theme_bw() +
-  theme(axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14, face = "bold")) +
+  theme_bw(base_size = 14) +
   labs(title = "DBLb domain expression by DC4 status",
        x = "DC4 status", y = "Aggregated logCPM expression")
+ggsave(file.path(plots_dir, "DBLb_DC4_boxplot.pdf"), p2, width = 6, height = 6)
 
-ggsave(file.path(plots_dir, "DBLb_DC4_boxplot.pdf"), width = 6, height = 6)
-
-# -------------------------
-# Add CM status back in
-# -------------------------
-dblb_long <- dblb_df %>%
-  pivot_longer(-GeneID, names_to = "sample", values_to = "expression") %>%
-  mutate(
-    CM_status = ifelse(disease_classifications$cerebral[sample],
-                       "severe_cerebral", "severe_nonCerebral"),
-    DC4_status = ifelse(sample %in% dc4_samples, "DC4", "Non-DC4")
-  ) %>%
-  filter(!is.na(CM_status), !is.na(DC4_status))
-
-dblb_agg <- dblb_long %>%
-  group_by(sample, CM_status, DC4_status) %>%
-  summarise(expression_sum = sum(expression), .groups = "drop")
-
-# -------------------------
-# Wilcoxon tests
-# -------------------------
-# Non-DC4
-wilcox_nonDC4 <- wilcox.test(
-  expression_sum ~ CM_status,
-  data = filter(dblb_agg, DC4_status == "Non-DC4"),
-  alternative = "greater"  # tests if CM > non-CM
-)
-
-# DC4
-wilcox_DC4 <- wilcox.test(
-  expression_sum ~ CM_status,
-  data = filter(dblb_agg, DC4_status == "DC4"),
-  alternative = "greater"  # tests if CM > non-CM
-)
-
-wilcox_nonDC4
-wilcox_DC4
-
-
-####plotting both cerebral malaria status and DC4 status####
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(readxl)
-
-# -------------------------
-# Parameters
-# -------------------------
-icam1_domains <- c("DBLb1","DBLb11","DBLb12",
-                   "DBLb3","DBLb4","DBLb5","DBLb8")
-
-# Load FIMO-positive ICAM1 hits
-# 'final_filtered_icam_binding.xlsx' has columns: Sample, sequence_name, motif_alt_id
-icam_hits <- read_excel("final_filtered_icam_binding.xlsx")
-
-# Vector of samples that had positive ICAM1 hits
-icam1_samples <- unique(icam_hits$Sample)
-
-# DC4 samples: motif_alt_id == "ICAM1_1"
-dc4_samples <- unique(icam_hits$Sample[icam_hits$motif_alt_id == "ICAM1_1"])
-
-# -------------------------
-# Subset expression matrix
-# -------------------------
-# v$E: voom-normalized expression matrix (rows = genes/domains, cols = samples)
-dblb_expr <- v$E[rownames(v$E) %in% icam1_domains, ]
-
-# Keep only samples present in expression matrix AND have CM info AND ICAM1 hits
-samples_to_keep <- intersect(colnames(dblb_expr), names(disease_classifications$cerebral))
+###################################################################################################
+# PART 3: Combined analysis (cerebral malaria status and DC4 status)
+                      
+# Restrict to samples with expression + CM info + ICAM1 hits
+samples_to_keep <- intersect(colnames(v$E), names(disease_classifications$cerebral))
 samples_to_keep <- intersect(samples_to_keep, icam1_samples)
-dblb_expr <- dblb_expr[, samples_to_keep]
+dblb_expr <- v$E[rownames(v$E) %in% icam1_domains, samples_to_keep]
 
-# -------------------------
-# Prepare long-format dataframe
-# -------------------------
-dblb_df <- as.data.frame(dblb_expr)
-dblb_df$GeneID <- rownames(dblb_expr)
-
-dblb_long <- dblb_df %>%
+# Long format with both CM and DC4 status
+dblb_long <- as.data.frame(dblb_expr) %>%
+  rownames_to_column("GeneID") %>%
   pivot_longer(-GeneID, names_to = "sample", values_to = "expression") %>%
-  # Keep only valid samples
-  filter(sample %in% samples_to_keep) %>%
   mutate(
     CM_status = ifelse(disease_classifications$cerebral[sample],
                        "severe_cerebral", "severe_nonCerebral"),
     DC4_status = ifelse(sample %in% dc4_samples, "DC4", "Non-DC4")
   ) %>%
-  # Drop any NAs just in case
   filter(!is.na(CM_status), !is.na(DC4_status)) %>%
-  # Turn into factors with explicit levels
   mutate(
-    CM_status = factor(CM_status, levels = c("severe_nonCerebral", "severe_cerebral")),
+    CM_status = factor(CM_status,
+                       levels = c("severe_nonCerebral", "severe_cerebral")),
     DC4_status = factor(DC4_status, levels = c("Non-DC4", "DC4"))
   )
 
-# -------------------------
-# Aggregate across domains per sample
-# -------------------------
+# Aggregate per sample
 dblb_agg <- dblb_long %>%
   group_by(sample, CM_status, DC4_status) %>%
   summarise(expression_sum = sum(expression), .groups = "drop")
 
-# -------------------------
-# Plot boxplot
-# -------------------------
-plots_dir <- "plots"
-dir.create(plots_dir, showWarnings = FALSE)
+# Wilcoxon tests within DC4 strata
+wilcox_nonDC4 <- wilcox.test(
+  expression_sum ~ CM_status,
+  data = filter(dblb_agg, DC4_status == "Non-DC4"),
+  alternative = "greater"
+)
+wilcox_DC4 <- wilcox.test(
+  expression_sum ~ CM_status,
+  data = filter(dblb_agg, DC4_status == "DC4"),
+  alternative = "greater"
+)
+print(wilcox_nonDC4)
+print(wilcox_DC4)
 
-ggplot(dblb_agg, aes(x = CM_status, y = expression_sum, fill = DC4_status)) +
+# Plot combined boxplot
+p3 <- ggplot(dblb_agg, aes(x = CM_status, y = expression_sum, fill = DC4_status)) +
   geom_boxplot(outlier.size = 0.5, position = position_dodge(width = 0.8)) +
   scale_fill_manual(values = c("DC4" = "#d7191c", "Non-DC4" = "#2c7bb6")) +
-  theme_bw() +
-  theme(axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14, face = "bold")) +
-  labs(title = "ICAM1-binding DBLb domain expression",
+  theme_bw(base_size = 14) +
+  labs(title = "ICAM1-binding DBLb expression by CM & DC4 status",
        x = "Cerebral Malaria status", y = "Aggregated logCPM expression")
+ggsave(file.path(plots_dir, "ICAM1_DBLb_CM_DC4_boxplot.pdf"), p3, width = 10, height = 6)
 
-ggsave(file.path(plots_dir, "ICAM1_DBLb_CM_DC4_boxplot.pdf"), width = 10, height = 6)
-
-####plotting interdomain categories by malaria status####
+###################################################################################################################
+# EXPRESSION LEVEL COMPARISONS OF INTERDOMAIN CATEGORIES BY MALARIA STATUS
+###################################################################################################################                    
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(readxl)
-
-# -------------------------
-# Parameters and Data Loading
-# -------------------------
 
 # Load interdomain mapping
 interdomain_mapping <- read_excel("interdomain_mapping.xlsx")
@@ -1458,13 +1367,7 @@ domain_to_interdomain <- setNames(interdomain_mapping$interdomain_category,
 # Get unique interdomain categories
 interdomain_categories <- unique(interdomain_mapping$interdomain_category)
 
-# -------------------------
 # Subset expression matrix
-# -------------------------
-
-# Debug: Check what we have
-cat("Total domains in v$E:", nrow(v$E), "\n")
-cat("Total domains in interdomain mapping:", nrow(interdomain_mapping), "\n")
 
 # Get domains that are in our mapping
 domains_to_analyze <- intersect(rownames(v$E), interdomain_mapping$domain)
@@ -1483,7 +1386,7 @@ domains_to_analyze <- unique(c(domains_to_analyze, additional_domains))
 cat("Total domains found (exact + pattern matches):", length(domains_to_analyze), "\n")
 
 # Create an updated mapping for pattern matches
-updated_domain_to_interdomain <- domain_to_interdomain  # start with exact matches
+updated_domain_to_interdomain <- domain_to_interdomain 
 
 for(domain in domains_to_analyze) {
   if(!domain %in% names(updated_domain_to_interdomain)) {
@@ -1499,18 +1402,10 @@ for(domain in domains_to_analyze) {
 
 cat("Updated mapping created for", length(updated_domain_to_interdomain), "domains\n")
 
-if(length(domains_to_analyze) == 0) {
-  cat("No matching domains found! Checking first few domain names:\n")
-  cat("First 10 domains in v$E:", head(rownames(v$E), 10), "\n")
-  cat("First 10 domains in mapping:", head(interdomain_mapping$domain, 10), "\n")
-  stop("No matching domains found between expression matrix and interdomain mapping")
-}
-
 # Subset expression matrix to only these domains
 interdomain_expr <- v$E[domains_to_analyze, , drop = FALSE]
 
 # Get samples with disease classification info
-# Use the severity factor which has the S/U information
 disease_names <- names(disease_classifications$severity)
 
 samples_to_keep <- intersect(colnames(interdomain_expr), disease_names)
@@ -1525,23 +1420,13 @@ if(length(samples_to_keep) == 0) {
 
 interdomain_expr <- interdomain_expr[, samples_to_keep, drop = FALSE]
 
-# -------------------------
 # Prepare long-format dataframe
-# -------------------------
 
 interdomain_df <- as.data.frame(interdomain_expr)
 interdomain_df$GeneID <- rownames(interdomain_expr)
 
 # Add interdomain category mapping using updated mapping
 interdomain_df$interdomain_category <- updated_domain_to_interdomain[interdomain_df$GeneID]
-
-# Check if we have samples to pivot
-cat("Dataframe dimensions before pivot:", nrow(interdomain_df), "x", ncol(interdomain_df), "\n")
-cat("Columns to pivot:", ncol(interdomain_df) - 2, "\n")  # minus GeneID and interdomain_category
-
-if(ncol(interdomain_df) <= 2) {
-  stop("No sample columns found to pivot. Check sample filtering.")
-}
 
 interdomain_long <- interdomain_df %>%
   pivot_longer(-c(GeneID, interdomain_category), names_to = "sample", values_to = "expression") %>%
@@ -1563,44 +1448,19 @@ interdomain_long <- interdomain_df %>%
     interdomain_category = factor(interdomain_category)
   )
 
-# -------------------------
-# Debug interdomain categories
-# -------------------------
-
-cat("\n=== Debugging interdomain categories ===\n")
-cat("All unique interdomain categories in data:\n")
-print(unique(interdomain_long$interdomain_category))
-
-cat("\nCategories containing 'NTS':\n")
-nts_categories <- unique(interdomain_long$interdomain_category)[grepl("NTS", unique(interdomain_long$interdomain_category))]
-print(nts_categories)
-
-cat("\nOriginal domains mapped to NTS categories:\n")
-nts_domains <- interdomain_mapping[grepl("NTS", interdomain_mapping$interdomain_category), ]
-print(nts_domains)
-
-cat("\nDomains in expression matrix containing 'NTS':\n")
-nts_expr_domains <- rownames(v$E)[grepl("NTS", rownames(v$E))]
-print(head(nts_expr_domains, 20))  # show first 20
-
-# -------------------------
 # Aggregate across domains per sample and interdomain category
-# -------------------------
 
 interdomain_agg <- interdomain_long %>%
   group_by(sample, malaria_status, interdomain_category) %>%
   summarise(expression_sum = sum(expression), .groups = "drop")
 
-# -------------------------
 # Statistical Tests - Wilcoxon tests within each malaria status and domain family
-# -------------------------
-
 # Function to extract domain family from interdomain category
 get_domain_family <- function(category) {
   case_when(
     grepl("^CIDR", category) ~ "CIDR",
     grepl("^DBL", category) ~ "DBL",
-    grepl("NTS", category) ~ "NTS",  # Changed from ^NTS to just NTS to catch NTSpam
+    grepl("NTS", category) ~ "NTS",
     TRUE ~ "Other"
   )
 }
@@ -1689,38 +1549,10 @@ for(family in unique(all_wilcox_results$domain_family)) {
   print(family_results[, c("malaria_status", "category1", "category2", "p_value", "p_adjusted")])
 }
 
-# -------------------------
-# Create plots directory
-# -------------------------
-plots_dir <- "plots"
-dir.create(plots_dir, showWarnings = FALSE)
-
-# -------------------------
-# Boxplot
-# -------------------------
-
-p1 <- ggplot(interdomain_agg, aes(x = interdomain_category, y = expression_sum, fill = malaria_status)) +
-  geom_boxplot(outlier.size = 0.5, position = position_dodge(width = 0.8)) +
-  scale_fill_manual(values = c("S" = "#d7191c", "U" = "#2c7bb6"),
-                    labels = c("S" = "Severe", "U" = "Asymptomatic")) +
-  theme_bw() +
-  theme(axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14, face = "bold"),
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Interdomain category expression by malaria status",
-       x = "Interdomain category", 
-       y = "Aggregated logCPM expression",
-       fill = "Malaria Status")
-
-ggsave(file.path(plots_dir, "interdomain_malaria_status_boxplot.pdf"), 
-       plot = p1, width = 12, height = 8)
-
-# -------------------------
-# Separate plots for each malaria status
-# -------------------------
+# Create boxplots of interdomain levels within disease severity groups
 
 # Severe malaria only
-p2 <- interdomain_agg %>%
+p1 <- interdomain_agg %>%
   filter(malaria_status == "S") %>%
   ggplot(aes(x = interdomain_category, y = expression_sum)) +
   geom_boxplot(fill = "#d7191c", alpha = 0.7, outlier.size = 0.5) +
@@ -1733,10 +1565,10 @@ p2 <- interdomain_agg %>%
        y = "Aggregated logCPM expression")
 
 ggsave(file.path(plots_dir, "interdomain_severe_malaria_boxplot.pdf"), 
-       plot = p2, width = 10, height = 6)
+       plot = p1, width = 10, height = 6)
 
 # Asymptomatic malaria only
-p3 <- interdomain_agg %>%
+p2 <- interdomain_agg %>%
   filter(malaria_status == "U") %>%
   ggplot(aes(x = interdomain_category, y = expression_sum)) +
   geom_boxplot(fill = "#2c7bb6", alpha = 0.7, outlier.size = 0.5) +
@@ -1749,25 +1581,13 @@ p3 <- interdomain_agg %>%
        y = "Aggregated logCPM expression")
 
 ggsave(file.path(plots_dir, "interdomain_Asymptomatic_malaria_boxplot.pdf"), 
-       plot = p3, width = 10, height = 6)
-
-# -------------------------
-# Save statistical results
-# -------------------------
+       plot = p2, width = 10, height = 6)
 
 # Save Wilcoxon test results
 write.csv(all_wilcox_results, file.path(plots_dir, "wilcoxon_test_results.csv"), 
-          row.names = FALSE)
-
-# Print summary
-cat("\n=== Summary ===\n")
-cat("Total samples analyzed:", length(unique(interdomain_agg$sample)), "\n")
-cat("Severe malaria samples:", length(unique(interdomain_agg$sample[interdomain_agg$malaria_status == "S"])), "\n")
-cat("Asymptomatic malaria samples:", length(unique(interdomain_agg$sample[interdomain_agg$malaria_status == "U"])), "\n")
-cat("Interdomain categories:", paste(levels(interdomain_agg$interdomain_category), collapse = ", "), "\n")
-cat("Significant comparisons (p < 0.05):", sum(all_wilcox_results$p_adjusted < 0.05), "\n")
+          row.names = FALSE)                      
 ###################################################################################################################
-# DOMAIN ANALYSIS
+# Finding samples with highest read counts in DE var domains for cDNA extraction
 ###################################################################################################################
 
 domains_SM <- c("CIDRa1_1","CIDRa1_4","CIDRa1_5","CIDRa1_8","CIDRa3_1","CIDRa3_4","CIDRb2","CIDRb5","DBLa0_1","DBLa0_16",
@@ -1866,100 +1686,6 @@ plotVoomRLE <- function(E, colours, title = "RLE Plot"){
 pdf(file.path(plots_dir, "RLE_plot_normalized.pdf"), width = 16, height = 8)
 plotVoomRLE(v$E, colors[categories], "RLE Plot - Normalized Data")
 dev.off()
-
-###################################################################################################################
-# Additional PCA plots to determine clustering within syndromes - UPDATED WITH REAL RUV4
-###################################################################################################################
-
-disease_codes <- dge$samples$Disease
-new_classifications <- rep("Other", length(disease_codes))
-names(new_classifications) <- rownames(dge$samples)
-
-new_classifications[grepl("C", disease_codes)] <- "Cerebral"
-acidosis_hypo <- (grepl("L", disease_codes) | grepl("H", disease_codes)) & !grepl("C", disease_codes)
-new_classifications[acidosis_hypo] <- "Acidosis_Hypo"
-anaemia <- grepl("A", disease_codes) & !grepl("C", disease_codes)
-new_classifications[anaemia] <- "Anaemia"
-new_classifications[disease_codes == "U"] <- "Asymptomatic"
-
-grp_detailed <- factor(new_classifications,
-                       levels = c("Asymptomatic", "Cerebral", "Acidosis_Hypo", "Anaemia", "Other"))
-
-colors_detailed <- c("Asymptomatic" = "#d7191c", "Cerebral" = "#008080", 
-                     "Acidosis_Hypo" = "#FFA500", "Anaemia" = "#A020F0", 
-                     "Other" = "#808080")
-
-# Stage covariates for detailed PCA
-stage_covs_list_detailed <- list(
-  Ring = covs_base$Ring,
-  Gametocyte = covs_base$Gametocyte,
-  Schizont = covs_base$Schizont
-)
-
-# Use RUV4 with specified number of factors
-k_factors <- 2  # Change this value based on supervisor's decision (tested k=1,2,3 - see k_factor_comparison_summary.csv)
-
-cat("Creating PCA plots for k =", k_factors, "RUV factors\n")
-
-# Use severity grouping instead of detailed grouping to avoid singularity
-grp_simple <- disease_classifications$severity[colnames(v$E)]
-grp_simple <- grp_simple[!is.na(grp_simple)]
-expr_filtered <- v$E[, names(grp_simple)]
-
-# Use real RUV4 with specified k value on filtered data
-ruv_factors_detailed <- compute_real_ruv4(expr_filtered, grp_simple, empirical_controls_genes, k_factors = k_factors)
-corrected_expr_detailed <- get_corrected_expression(expr_filtered, ruv_factors_detailed$W, stage_covs_list_detailed)
-
-# PCA on all genes
-pca_detailed <- autoplot(
-  prcomp(t(corrected_expr_detailed)),
-  data = data.frame(Group = grp_detailed[colnames(corrected_expr_detailed)]),
-  colour = 'Group',
-  size = 1,
-  alpha = 0.5
-) +
-  scale_color_manual(values = colors_detailed) +
-  ggtitle(paste("PCA: Library Size + All Stages + RUV (k =", k_factors, ") - Detailed Disease Classification")) +
-  theme_bw()
-
-ggsave(file.path(plots_dir, "PCA_detailed_disease_classification.pdf"), pca_detailed, width = 10, height = 8)
-
-# Identify var genes (not starting with PF3D7)
-var_genes <- !grepl("^PF3D7", rownames(expr_filtered))
-
-# Subset expression matrix to only var genes
-expr_var <- expr_filtered[var_genes, ]
-
-# Recompute RUV factors on var-only data
-ruv_factors_var <- compute_real_ruv4(expr_var, grp_simple, empirical_controls_genes, k_factors = k_factors)
-corrected_expr_var <- get_corrected_expression(expr_var, ruv_factors_var$W, stage_covs_list_detailed)
-
-# PCA on var-only data
-pca_var <- autoplot(
-  prcomp(t(corrected_expr_var)),
-  data = data.frame(Group = grp_detailed[colnames(corrected_expr_var)]),
-  colour = 'Group',
-  size = 1,
-  alpha = 0.5
-) +
-  scale_color_manual(values = colors_detailed) +
-  ggtitle("PCA: Var Gene Expression (Detailed Disease Classification)") +
-  theme_bw()
-
-ggsave(file.path(plots_dir, "PCA_var_only_disease_classification.pdf"), pca_var, width = 10, height = 8)
-
-# Optionally export var-only matrices
-write.csv(corrected_expr_var, file.path(results_dir, "corrected_var_expression.csv"))
-write.csv(expr_var, file.path(results_dir, "uncorrected_var_log2cpm.csv"))
-
-# Export corrected and uncorrected expression data for individual samples
-write.csv(corrected_expr_detailed, 
-          file.path(results_dir, "corrected_expression_individual_samples.csv"))
-write.csv(v$E, file.path(results_dir, "uncorrected_log2cpm_expression.csv"))
-
-# Also export sample metadata
-write.csv(dge$samples, 
-          file.path(results_dir, "sample_metadata.csv"))
 
 ###################################################################################################################
 # Comparing number of factors in RUV4 analysis
@@ -2142,12 +1868,3 @@ for(disease_name in names(disease_classifications)) {
 
 write.csv(k_comparison_summary, file.path(results_dir, "k_factor_comparison_summary.csv"), row.names = FALSE)
 print(k_comparison_summary)
-
-cat("K-factor comparison completed!\n")
-cat("Check the summary table to see how different k values affect significant gene detection.\n")
-
-##########################################
-cat("Analysis completed successfully!\n")
-cat("Results saved to:", results_dir, "\n")
-cat("Plots saved to:", plots_dir, "\n")
-cat("GSEA files saved to:", gsea_dir, "\n")
