@@ -20,7 +20,7 @@ def process_hmm_annotations(df, sample):
             continue  # Skip if no size is found
         size = int(size_match.group(1))
 
-        if size > 1500:
+        if size > 500:
             # Process CIDRa
             count = len(re.findall(r'CIDRa', ','.join(group['subdomain'])))
             if count > 1:
