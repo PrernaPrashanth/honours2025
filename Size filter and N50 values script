@@ -29,14 +29,15 @@ file_prefix="${active_file}"
 
 echo "Sample: $file_prefix"
 
-# 1. Run Python script to process HMM annotations and filter out transcripts < 500 bp
+# 1. Run Python script to process HMM annotations
 python process_hmm_annotations.py "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" "$file_prefix"
 
-# 2. Extract significant variant transcripts and compute N50
+# 2. Extract sig variant transcripts and compute N50
 seqtk subseq "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" "${file_prefix}_assembled_id_sig_annotation.txt" > "${file_prefix}_sig_var_transcripts.fasta"
+
 stats.sh in="${file_prefix}_sig_var_transcripts.fasta" > "${file_prefix}_N50.txt"
 
-# 3. Generate assembled_id_sig_domains (var domains that had a high significance hit during annotation)
+# 3. Generate _assembled_id_sig_domains
 grep -F -f "${file_prefix}_assembled_id_sig_annotation.txt" "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" | \
 awk -F'[[:blank:]]' -v OFS="\t" '{$1=$1; print}' | \
 awk '{gsub(/_clustalo_align_v2_v3/,"\t")}1' | \
@@ -45,19 +46,18 @@ awk 'BEGIN{FS=OFS="\t"}{gsub(/\|/, "\t", $1)} 1' | \
 awk -v var="$file_prefix" 'BEGIN{FS=OFS="\t"}{print var"_"$1"_"$3,$4,$6,$7,$8,$9,$10}' | \
 awk -v var="$file_prefix" 'BEGIN{FS=OFS="\t"}{gsub(/\-/, "\t", $5)} 1' > "${file_prefix}_assembled_id_sig_domains"
 
-# 4. Run R script to find unique domains (if there are various CIDRα1.1 in the transcript, append a suffix to make them unique, e.g. CIDRα1.1 and CIDRα1.1.1)
-#./unique_domains.r "${file_prefix}"
+# 4. Run R script to find unique domains
+./unique_domains.r "${file_prefix}"
 
-mkdir bed_files/ extracted_fasta/
+# 5. Run extract_fasta.r to generate BED
+Rscript extract_fasta_updated_2.r
 
-# 5. Run extract_fasta.r to generate BED files of var domains that pass size filters specific to each domain
-#Rscript extract_fasta.r
-
-# 6. Index FASTA and extract var domain sequences with bedtools
+mkdir bed_files/
+mkdir extracted_fasta/
+# 6. Index FASTA and extract with bedtools
 samtools faidx "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta"
-bedtools getfasta -fi "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" -bed "bed_files/${file_prefix}.bed" -name -fo "extracted_fasta/${file_prefix}.extracted.fasta"
 
-echo "Processed ${file_prefix}"
+bedtools getfasta -fi "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" -bed "bed_files/${file_prefix}.bed" -name -fo "extracted_fasta/${file_prefix}.extracted.fasta"
 
 ##DO NOT ADD/EDIT BEYOND THIS LINE##
 ##Job monitor command to list the resource usage
