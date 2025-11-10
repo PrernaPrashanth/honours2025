@@ -12,52 +12,75 @@ filenames=(
 active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
 file_prefix="${active_file%%_featureCounts.txt}"
 
+# Create output directory (if it doesn't exist)
 mkdir -p featurecounts_output
 
+# Check if the file exists
 if [ ! -f "$active_file" ]; then
   echo "Warning: $active_file not found, skipping..."
   exit 0
 fi
-      
+
 echo "Processing $active_file..."
-{
+
+# Read and parse the featureCounts file
+  # The first two lines of a featureCounts output file are headers:
+  #   header1 = column names
+  #   header2 = additional metadata or sample-specific info
   read header1
   read header2
+
+  # Declare an associative array to store summed counts for each transcript/domain
   declare -A counts
 
+  # Loop over each subsequent line in the featureCounts file
   while read -r line; do
+    # Extract key fields from each row:
+    #   Column 1 → transcript or feature name
+    #   Column 7 → read count (the raw or assigned read number)
     transcript=$(echo "$line" | cut -f1)
     count=$(echo "$line" | cut -f7)
 
-    # Normalize transcript/domain name
-    if [[ $transcript == mal_mito* ]]; then  
+    # Format group transcript/domain identifiers
+    if [[ $transcript == mal_mito* ]]; then
+      # Keep mitochondrial gene/transcript names unchanged
       key="$transcript"
 
     elif [[ $transcript == PF3D7* ]]; then
+      # Keep P. falciparum gene IDs (PF3D7_...) unchanged
       key="$transcript"
 
     elif [[ $transcript =~ ^(CIDR|DBL|NTS|NTSA)[a-zA-Z0-9]+_ ]]; then
+      # For PfEMP1 domain names (e.g., CIDRa1.1), extract the domain root
+      # e.g. CIDRa1.1 → CIDRa1.1
       key=$(echo "$transcript" | sed -E 's/^((CIDR|DBL|NTS|NTSA)[^_]+)_.*/\1/')
 
     else
+      # If it doesn’t match any pattern, use the raw name as-is
       key="$transcript"
     fi
 
+    # Aggregate counts per unique key
+    # If the key already exists in the array, sum the counts
     if [[ -n "${counts[$key]}" ]]; then
       counts[$key]=$(awk "BEGIN {print ${counts[$key]} + $count}")
     else
+      # Otherwise initialize the key with the first observed count
       counts[$key]=$count
     fi
-  done
- 
+  done  
+
+  # For each key in the associative array, print "key\tcount"
+  # Then sort alphabetically by key for consistent output ordering
   for key in "${!counts[@]}"; do
     echo -e "$key\t${counts[$key]}"
   done | sort
 
+# Redirect the processed output to a new file inside the output directory
 } < "$active_file" > "featurecounts_output/${file_prefix}_transcripts_count.txt"
-    
+
 echo "Done: featurecounts_output/${file_prefix}_transcripts_count.txt"
 
 ## DO NOT ADD/EDIT BEYOND THIS LINE ##
 ## Job monitor command to list resource usage
-my-job-stats -a -n -s  
+my-job-stats -a -n -s
