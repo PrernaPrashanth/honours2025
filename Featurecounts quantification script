@@ -1,0 +1,72 @@
+#!/bin/bash
+#SBATCH --job-name=map_pipeline
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=128G
+#SBATCH -t 72:00:00
+#SBATCH --array=0-933
+
+# please set array to be equal to the number of files you want to process
+
+# -------- Load modules --------
+module purge
+module load GCC/11.3.0
+module load OpenMPI/4.1.4
+module load Subread/2.0.4
+module load parallel
+module load HMMER/3.3.2
+module load cath-tools/0.16.10
+module load SAMtools/1.16.1
+
+# Array of input files
+filenames=(
+*_pf_core_1.fq
+)
+
+active_file="${filenames[$SLURM_ARRAY_TASK_ID]}"
+file_prefix="${active_file%%_pf_core_1.fq}"
+
+echo "Running pipeline for: $file_prefix"
+
+# Wrap the FASTA file to ensure proper formatting for indexing
+fold -w 60 "${file_prefix}_SPAdes71_SSPACE.final.scaffolds.fasta" > "${file_prefix}_assembled_wrapped.fasta"
+
+cat "${file_prefix}_assembled_wrapped.fasta" Pf3D7_transcripts_no_var_no_PfEMP1.fa > "${file_prefix}_var_core.fasta"
+
+# Build Subread index on the wrapped FASTA file of assembled var domains that passed size filters and the core transcripts with no PfEMP1s
+subread-buildindex -o ./"${file_prefix}_assembly_index" "${file_prefix}_var_core.fasta"
+
+# Align the Pf core read fq files with subread to the sample specific fasta reference file containing assembled var domains and core transcripts, output directly to sorted BAM
+subread-align -t 0 -i "${file_prefix}_assembly_index" -r "${file_prefix}_pf_core_1.fq" -R "${file_prefix}_pf_core_2.fq" --SAMoutput 2> "${file_prefix}_align.log" | \
+samtools view -@ 4 -bS - | \
+samtools sort -@ 4 -o "${file_prefix}_mapped_to_extracted.sorted.bam"
+
+# Index BAM
+samtools index "${file_prefix}_mapped_to_extracted.sorted.bam"
+
+# Create SAF annotation file from HMMER cathresolvehits output
+awk '
+/^#/ || NF < 4 { next }
+
+{
+  gene_id = $2
+  scaffold_id = $1  # <-- keep full scaffold ID including |
+  split($4, b, "-")
+  start = b[1]
+  end = b[2]
+
+  print gene_id "\t" scaffold_id "\t" start "\t" end "\t+"
+}
+' "${file_prefix}_assembled_transcripts_hmm_cathresolvehits" > "${file_prefix}_extracted.saf"
+# combine the sample specific var domains SAF and the Pf core transcripts saf
+cat "${file_prefix}_extracted.saf" transcripts.saf > "${file_prefix}_var_core.saf"
+
+# Count reads for each domain and core transcript using featurecounts, the sample specific BAM index and the SAF files
+#featureCounts -p -a "${file_prefix}_var_core.saf" -F SAF -T 4 -o "${file_prefix}_featureCounts.txt" "${file_prefix}_mapped_to_extracted.sorted.bam"
+
+##DO NOT ADD/EDIT BEYOND THIS LINE##
+
+##Job monitor command to list the resource usage
+
+my-job-stats -a -n -s

@@ -1,0 +1,82 @@
+#!/bin/bash
+#SBATCH --job-name=extract_counts              
+#SBATCH --output=logs/extract_%A_%a.out       
+#SBATCH --time=12:00:00                        
+#SBATCH --mem=32G                              
+#SBATCH --array=0-933                         
+
+filenames=(
+  sample_specific_quants/*_quant.sf
+)
+
+active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
+file_prefix="${active_file%%/quant.sf}"
+
+# Create the output directory if it doesn’t exist
+mkdir -p counts_output
+
+# If the input file is missing, print a warning and skip processing
+if [ ! -f "$active_file" ]; then
+  echo "Warning: $active_file not found, skipping..."
+  exit 0
+fi
+
+echo "Processing $active_file..."
+
+# Read and process the quantification file
+{
+  read header                      # Skip the header line of the quant.sf file
+  declare -A counts                # Declare an associative array for counts
+
+  # Read each remaining line in the quant.sf file
+  while read -r line; do
+    # Extract relevant fields:
+    # Column 1 = transcript ID, Column 5 = estimated counts
+    transcript=$(echo "$line" | cut -f1)
+    count=$(echo "$line" | cut -f5)
+
+    # Clean or standardise transcript names
+    # Handle different transcript naming conventions or sources
+    if [[ $transcript == mal_mito* ]]; then
+      # Keep mitochondrial transcripts as it is
+      key="$transcript"
+
+    elif [[ $transcript =~ _[^_]*_[^:]* ]]; then
+      # For complex names with underscores/colons, extract a cleaner key
+      key=$(echo "$transcript" | sed -E 's/^[^_]*_[^_]*_([^:]*)(::|$).*/\1/')
+      # Remove any version numbers (e.g. ".1", ".2") at the end
+      key=$(echo "$key" | sed -E 's/\.[0-9]+$//')
+
+    elif [[ $transcript == PF3D7* ]]; then
+      # Keep Plasmodium falciparum gene IDs as it is
+      key="$transcript"
+    else
+      # Default: use original transcript name
+      key="$transcript"
+    fi
+
+    # Aggregate counts per unique key
+    # If the transcript (key) already exists, sum the counts
+    if [[ -n ${counts[$key]} ]]; then
+      counts[$key]=$(awk "BEGIN {print ${counts[$key]} + $count}")
+    else
+      # Otherwise, initialize with the first count
+      counts[$key]=$count
+    fi
+
+  done
+
+  # Print each unique key and its total count
+  # Sort alphabetically for consistent output
+  for key in "${!counts[@]}"; do
+    echo -e "$key\t${counts[$key]}"
+  done | sort
+
+# Redirect the entire block’s output to a new per-sample count file
+} < "$active_file" > "counts_output/${file_prefix}_transcript_counts.txt"
+  
+echo "Done: counts_output/${file_prefix}_transcript_counts.txt"
+
+## DO NOT ADD/EDIT BEYOND THIS LINE ##  
+## Job monitor command to list resource usage
+my-job-stats -a -n -s

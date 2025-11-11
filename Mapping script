@@ -1,0 +1,88 @@
+#!/bin/bash
+#SBATCH --job-name=mapping_pipeline
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=128G
+#SBATCH --tmp=200GB
+#SBATCH -t 72:00:00
+#SBATCH --array=0-933 #change depending on how many samples there are
+
+# Load modules
+module purge
+module load GCC/11.3.0
+module load OpenMPI/4.1.4
+module load R-bundle-Bioconductor/3.16-R-4.2.2
+module load Subread/2.0.4
+module load BCFtools/1.15.1
+module load Pysam/0.16.0.1-Python-2.7.18
+module load SAMtools/1.16.1
+module load tabix/0.2.6
+module load seqtk/1.3
+module load parallel
+
+# File list
+filenames=(
+*_1.fq.gz
+)
+active_file=${filenames[$SLURM_ARRAY_TASK_ID]}
+file_prefix="${active_file%%_1.fq.gz}"
+
+# Build subread indexes
+# subread-buildindex -o ./plasmodium_transcripts_no_var_rif_stevor_index plasmodium_transcripts_no_var_rif_stevor.fa
+# subread-buildindex -o ./human_genome_index hg38.fa
+# subread-buildindex -o ./ralstonia_genome_index ralstonia_genome.fa
+
+echo "Running pipeline for: $file_prefix"
+
+# to ensure the base directory does not run out of space while creating 934 SAM files, the mapping process is done in the tmp/ directory with the final polymorphic_reads_*.fq outputs moved to the base directory at the end
+mv "${file_prefix}_1.fq.gz" /tmp
+mv "${file_prefix}_2.fq.gz" /tmp
+
+#mkdir polymorphic_reads/
+#mkdir pf_core_reads/
+
+# Ralstonia mapping
+subread-align -t 0 --multiMapping -B 10 -i subread_indexes/ralstonia/ralstonia_index -r "/tmp/${file_prefix}_1.fq.gz" -R "/tmp/${file_prefix}_2.fq.gz" -o "/tmp/${file_prefix}_ralstonia_mapped.sam" --SAMoutput || { echo "$file_prefix" >> retrim_files.txt; exit 1; }
+samtools view -f 4 "/tmp/${file_prefix}_ralstonia_mapped.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_unmapped_reads.txt"
+
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_2.fq" &&\
+
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_unmapped_reads.txt" > "/tmp/${file_prefix}_ralstonia_unmapped_2.fq" &&\
+#rm "${file_prefix}_ralstonia_mapped.sam" "${file_prefix}_ralstonia_mapped.sam.indel.vcf"
+
+# Pf core genome mapping
+
+subread-align -t 0 --multiMapping -B 10 -i subread_indexes/pf_core/pf_core_index -r "/tmp/${file_prefix}_ralstonia_unmapped_1.fq" -R "/tmp/${file_prefix}_ralstonia_unmapped_2.fq" -o "/tmp/${file_prefix}_mapped_pf_core.sam" --SAMoutput
+samtools view -f 4 "/tmp/${file_prefix}_mapped_pf_core.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_Pf_core_unmapped_reads_multimap.txt"
+samtools view -F 4 "/tmp/${file_prefix}_mapped_pf_core.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_Pf_core_mapped_reads_multimap.txt"
+
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_Pf_core_unmapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_unmapped_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_Pf_core_unmapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_unmapped_2.fq"
+
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_Pf_core_mapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_core_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_Pf_core_mapped_reads_multimap.txt" > "/tmp/${file_prefix}_Pf_core_2.fq" &&\
+#rm "${file_prefix}_mapped_pf_core.sam" "${file_prefix}_mapped_pf_core.sam.indel.vcf" "${file_prefix}_ralstonia_unmapped_1.fq" "${file_prefix}_ralstonia_unmapped_2.fq"
+
+mv "/tmp/${file_prefix}_Pf_core_1.fq" ./pf_core_reads/
+mv "/tmp/${file_prefix}_Pf_core_2.fq" ./pf_core_reads/
+
+# Human mapping
+
+subread-align -t 0 --multiMapping -B 10 -i subread_indexes/human/human_index -r "/tmp/${file_prefix}_Pf_unmapped_1.fq" -R "/tmp/${file_prefix}_Pf_unmapped_2.fq" -o "/tmp/${file_prefix}_human_mapped.sam" --SAMoutput
+samtools view -f 4 "/tmp/${file_prefix}_human_mapped.sam" | cut -f1 | sort -u > "/tmp/${file_prefix}_human_unmapped_reads.txt"
+
+seqtk subseq "/tmp/${file_prefix}_1.fq.gz" "/tmp/${file_prefix}_human_unmapped_reads.txt" > "/tmp/${file_prefix}_polymorphic_reads_1.fq"
+seqtk subseq "/tmp/${file_prefix}_2.fq.gz" "/tmp/${file_prefix}_human_unmapped_reads.txt" > "/tmp/${file_prefix}_polymorphic_reads_2.fq" &&\
+#rm "${file_prefix}_human_mapped.sam" "${file_prefix}_human_mapped.sam.indel.vcf" "${file_prefix}_Pf_unmapped_1.fq" "${file_prefix}_Pf_unmapped_2.fq" "${file_prefix}_1.fq.gz" "${file_prefix}_2.fq.gz"
+
+mv "/tmp/${file_prefix}_polymorphic_reads_1.fq" ./polymorphic_reads/
+mv "/tmp/${file_prefix}_polymorphic_reads_2.fq" ./polymorphic_reads/
+
+##DO NOT ADD/EDIT BEYOND THIS LINE##
+
+##Job monitor command to list the resource usage
+
+my-job-stats -a -n -s
